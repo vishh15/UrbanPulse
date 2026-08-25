@@ -107,7 +107,40 @@ export const getRegisteredUsers = () => {
  */
 export const saveUser = ({ fullName, organizationName, email, password, role = 'citizen', ngoType }) => {
   const users = getRegisteredUsers();
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  const normalizedPassword = typeof password === 'string' ? password : '';
+  const isNgo = role === 'ngo';
+  const normalizedFullName = (fullName || '').trim();
+  const normalizedOrgName = (organizationName || '').trim();
+
+  // Guard validation here too, so invalid payloads are blocked even if UI validation is bypassed.
+  if (!normalizedEmail) {
+    return {
+      success: false,
+      message: 'Email address is required.',
+    };
+  }
+
+  if (normalizedPassword.length < 6) {
+    return {
+      success: false,
+      message: 'Password must be at least 6 characters.',
+    };
+  }
+
+  if (isNgo && !normalizedOrgName) {
+    return {
+      success: false,
+      message: 'Organization name is required for NGO accounts.',
+    };
+  }
+
+  if (!isNgo && !normalizedFullName) {
+    return {
+      success: false,
+      message: 'Full name is required for citizen accounts.',
+    };
+  }
 
   const exists = users.some((u) => u.email.toLowerCase() === normalizedEmail);
   if (exists) {
@@ -117,16 +150,15 @@ export const saveUser = ({ fullName, organizationName, email, password, role = '
     };
   }
 
-  const isNgo = role === 'ngo';
   const newUser = {
     id: isNgo ? `ngo-${Date.now()}` : `cit-${Date.now()}`,
-    fullName: isNgo ? (organizationName?.trim() || '') : (fullName?.trim() || ''),
+    fullName: isNgo ? normalizedOrgName : normalizedFullName,
     ...(isNgo && {
-      organizationName: organizationName?.trim() || '',
+      organizationName: normalizedOrgName,
       ngoType: ngoType || '',
     }),
     email: normalizedEmail,
-    password: password,
+    password: normalizedPassword,
     role: isNgo ? 'ngo' : 'citizen',
     createdAt: new Date().toISOString(),
   };
