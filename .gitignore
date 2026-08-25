@@ -1,0 +1,14 @@
+p1/
+p2/
+p3/
+p4/
+
+node_modules/
+dist/
+
+*.db
+*.db-shm
+*.db-wal
+
+.DS_Store
+Thumbs.db
