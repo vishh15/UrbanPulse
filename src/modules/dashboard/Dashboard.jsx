@@ -1,0 +1,319 @@
+import React, { useState, useEffect } from 'react';
+import { User, LogOut, Camera, ArrowRight, MapPin, CheckCircle2, Clock, FileText, AlertCircle, Map, Star, Zap } from 'lucide-react';
+import { confirmReport, getReports } from '../../api';
+import reportCategories from '../../../shared/reportCategories.json';
+import useUrlFilters from '../../shared/useUrlFilters';
+import { Badge, Button, EmptyState, Skeleton } from '../../shared/ui';
+import { PaginationControls, ReportFilters } from '../../shared/ReportFilters';
+import ReportPhotos from '../../shared/ReportPhotos';
+import { useI18n } from '../../i18n/I18nProvider';
+
+const DEFAULT_FILTERS = { page: '1', pageSize: '20', q: '', category: '', status: '', from: '', to: '' };
+
+export default function Dashboard({ currentUser, onLogout, onStartReport, onOpenMap, onRatePlace, onQuickReport }) {
+  const { t, formatNumber } = useI18n();
+  const [reports, setReports] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [communityReports, setCommunityReports] = useState([]);
+  const [communityError, setCommunityError] = useState('');
+  const [communityLoading, setCommunityLoading] = useState(true);
+  const [confirmingReportId, setConfirmingReportId] = useState(null);
+  const [stats, setStats] = useState({ total: 0, underReview: 0, resolved: 0 });
+  const [reportsError, setReportsError] = useState('');
+  const [isLoadingReports, setIsLoadingReports] = useState(true);
+  const [filters, setFilters] = useUrlFilters(DEFAULT_FILTERS);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoadingReports(true);
+    getReports(filters)
+      .then((result) => {
+        if (!active) return;
+        setReports(result.reports);
+        setPagination(result.pagination);
+        setStats({
+          total: result.summary.total,
+          underReview: result.summary.accepted + result.summary.in_progress,
+          resolved: result.summary.resolved,
+        });
+      })
+      .catch((error) => {
+        if (active) setReportsError(error.message);
+      })
+      .finally(() => {
+        if (active) setIsLoadingReports(false);
+      });
+    return () => { active = false; };
+  }, [filters]);
+
+  useEffect(() => {
+    let active = true;
+    setCommunityLoading(true);
+    setCommunityError('');
+    getReports({
+      ...filters,
+      scope: 'community',
+      page: '1',
+      pageSize: '10',
+    })
+      .then((result) => {
+        if (active) setCommunityReports(result.reports);
+      })
+      .catch((error) => {
+        if (active) setCommunityError(error.message);
+      })
+      .finally(() => {
+        if (active) setCommunityLoading(false);
+      });
+    return () => { active = false; };
+  }, [filters.q, filters.category, filters.status, filters.from, filters.to]);
+
+  const handleConfirmReport = async (reportId) => {
+    setConfirmingReportId(reportId);
+    setCommunityError('');
+    try {
+      const result = await confirmReport(reportId);
+      setCommunityReports((items) => items.map((report) => (
+        report.id === reportId
+          ? { ...report, confirmationCount: result.confirmationCount, confirmedByMe: true, priority: result.priority }
+          : report
+      )));
+    } catch (error) {
+      setCommunityError(error.message);
+    } finally {
+      setConfirmingReportId(null);
+    }
+  };
+
+  // Helper to render status badge with appropriate styling
+  const renderStatusBadge = (status) => {
+    switch (status) {
+      case 'resolved':
+        return (
+          <span className="status-badge status-badge-resolved">
+            <CheckCircle2 size={11} style={{ marginRight: '3px' }} />
+            {t('Resolved')}
+          </span>
+        );
+      case 'accepted':
+        return (
+          <span className="status-badge status-badge-review">
+            <Clock size={11} style={{ marginRight: '3px' }} />
+            {t('Under Review')}
+          </span>
+        );
+      case 'in_progress':
+        return (
+          <span className="status-badge status-badge-review">
+            <Clock size={11} style={{ marginRight: '3px' }} />
+            {t('In Progress')}
+          </span>
+        );
+      case 'pending':
+      default:
+        return (
+          <span className="status-badge status-badge-submitted">
+            <FileText size={11} style={{ marginRight: '3px' }} />
+            {t('Submitted')}
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div className="dashboard-container">
+      {/* 1. Welcome Card */}
+      <div className="card dashboard-welcome-card">
+        <div className="user-avatar-badge">
+          <User size={24} />
+        </div>
+        <div>
+          <div className="user-role-tag">{t('Citizen Contributor')}</div>
+          <h2 className="dashboard-title">{t('Welcome back, {name}!', { name: currentUser?.fullName || t('Citizen') })}</h2>
+          <p className="dashboard-subtitle">
+            {t('You are signed in as {email}.', { email: currentUser?.email })}
+          </p>
+        </div>
+      </div>
+
+      {/* 2. My Activity Section */}
+      <div className="card mt-3">
+        <div className="card-header" style={{ marginBottom: '0.25rem' }}>
+          <h3 className="card-title" style={{ fontSize: '1.1rem' }}>{t('My Activity')}</h3>
+          <p className="card-subtitle">{t('Overview of your public space contributions')}</p>
+        </div>
+
+        {reportsError && (
+          <div className="alert alert-error" role="alert">
+            <AlertCircle size={18} className="alert-icon" />
+            <span>{reportsError}</span>
+          </div>
+        )}
+        <div className="activity-stats-grid">
+          <div className="stat-card">
+            <div className="stat-number">{formatNumber(stats.total)}</div>
+            <div className="stat-label">{t('Reports Submitted')}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-number">{formatNumber(stats.underReview)}</div>
+            <div className="stat-label">{t('Under Review')}</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-number">{formatNumber(stats.resolved)}</div>
+            <div className="stat-label">{t('Resolved')}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card mt-3">
+        <div className="card-header" style={{ marginBottom: '0.25rem' }}>
+          <h3 className="card-title" style={{ fontSize: '1.1rem' }}>{t('Explore and Rate Public Spaces')}</h3>
+          <p className="card-subtitle">{t('See community scores across Chennai or add your experience.')}</p>
+        </div>
+        <div className="dashboard-actions mt-2">
+          <button type="button" className="btn btn-primary btn-sm" onClick={onOpenMap}>
+            <Map size={15} /><span>{t('Open Place Map')}</span>
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={onRatePlace}>
+            <Star size={15} /><span>{t('Rate a Place')}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 3. Primary Action Card: Report an Issue */}
+      <div className="card mt-3">
+        <div className="card-header" style={{ marginBottom: '0.25rem' }}>
+          <div className="status-indicator">
+            <span className="status-dot"></span>
+            <span>{t('Citizen Portal Active')}</span>
+          </div>
+          <h3 className="card-title mt-1" style={{ fontSize: '1.1rem' }}>{t('Public Space Intelligence')}</h3>
+          <p className="card-subtitle">
+            {t('Report public space concerns such as damaged pathways, broken lighting, or waste management issues.')}
+          </p>
+        </div>
+
+        <div className="placeholder-module-box">
+          <div className="placeholder-icon">
+            <Camera size={24} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h4 style={{ margin: '0 0 0.2rem', fontSize: '0.95rem', color: '#0f172a' }}>
+              {t('Report a Public Space Issue')}
+            </h4>
+            <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
+              {t('Provide location, issue details, and photographic evidence for municipal action.')}
+            </p>
+          </div>
+          <button
+            type="button"
+            id="btn-start-report"
+            className="btn btn-primary btn-sm"
+            onClick={onStartReport}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            <span>{t('Report an Issue')}</span>
+            <ArrowRight size={14} />
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm quick-report-action" onClick={onQuickReport}>
+            <Zap size={16} aria-hidden="true" /><span>{t('Quick report')}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 4. My Reports / Recent Reports Section */}
+      <div className="card mt-3">
+        <div className="card-header" style={{ marginBottom: '0.25rem' }}>
+          <h3 className="card-title" style={{ fontSize: '1.1rem' }}>{t('My Reports & Recent Activity')}</h3>
+          <p className="card-subtitle">{t('Track the status of your reported public space issues')}</p>
+        </div>
+
+        <ReportFilters filters={filters} onChange={setFilters} categories={reportCategories} />
+        <div className="reports-list">
+          {isLoadingReports ? (
+            <Skeleton lines={4} />
+          ) : reports.length === 0 ? (
+            <EmptyState title={t('No matching reports')} description={t('Adjust the search and filters, or submit a new issue.')} />
+          ) : (
+            reports.map((rep) => (
+              <div key={rep.id} className="report-item">
+                <div className="report-item-main">
+                  <span className="report-item-title">{rep.title}</span>
+                  <span className="report-item-location">
+                    <MapPin size={13} style={{ color: '#0284c7', flexShrink: 0 }} />
+                    <span>{rep.location}</span>
+                  </span>
+                  {rep.publicResponse && (
+                    <div className="public-response">
+                      <strong>{t('Authority response')}</strong>
+                      <p>{rep.publicResponse}</p>
+                    </div>
+                  )}
+                  {rep.fakeFlagged === 1 && <span className="status-badge status-badge-review">{t('Under trust review')}</span>}
+                  <ReportPhotos report={rep} />
+                </div>
+                <div>
+                  {renderStatusBadge(rep.status)}
+                  <div className="report-card-badges">
+                    <Badge tone="neutral">{t('{count} confirmations', { count: formatNumber(rep.confirmationCount || 0) })}</Badge>
+                    {rep.groupReportCount > 1 && <Badge tone="status">{t('Issue with {count} reports', { count: formatNumber(rep.groupReportCount) })}</Badge>}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <PaginationControls pagination={pagination} onPageChange={(page) => setFilters({ page: String(page) })} />
+
+        {/* Sign Out Action */}
+        <div className="dashboard-actions mt-3" style={{ paddingTop: '0.85rem', borderTop: '1px solid var(--border-color)' }}>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={onLogout}
+          >
+            <LogOut size={15} />
+            <span>{t('Sign Out')}</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="card mt-3">
+          <div className="card-header" style={{ marginBottom: '0.25rem' }}>
+            <h3 className="card-title" style={{ fontSize: '1.1rem' }}>{t('Community reports')}</h3>
+            <p className="card-subtitle">{t('Confirm an open issue reported by another citizen.')}</p>
+          </div>
+          {communityError && <div className="alert alert-error" role="alert">{communityError}</div>}
+          <div className="reports-list">
+            {communityLoading ? <Skeleton lines={3} /> : communityReports.length === 0 ? (
+              <EmptyState title={t('No community reports match')} description={t('Try adjusting your search and filters.')} />
+            ) : communityReports.map((report) => (
+              <article key={report.id} className="report-item community-report-item">
+                <div className="report-item-main">
+                  <span className="report-item-title">{report.title}</span>
+                  <span className="report-item-location"><MapPin size={13} />{report.location}</span>
+                  <span className="card-subtitle">{t(report.category)} · {t(report.status.replaceAll('_', ' '))}</span>
+                  <p>{report.description}</p>
+                  <ReportPhotos report={report} />
+                  {report.groupReportCount > 1 && <Badge tone="status">{t('Issue with {count} reports', { count: formatNumber(report.groupReportCount) })}</Badge>}
+                </div>
+                <div className="community-report-actions">
+                  <Badge tone="neutral">{t('{count} confirmations', { count: formatNumber(report.confirmationCount || 0) })}</Badge>
+                  <Button
+                    variant={report.confirmedByMe ? 'secondary' : 'primary'}
+                    size="sm"
+                    disabled={Boolean(report.confirmedByMe) || confirmingReportId === report.id}
+                    onClick={() => handleConfirmReport(report.id)}
+                  >
+                    {report.confirmedByMe
+                      ? t('Already confirmed')
+                      : confirmingReportId === report.id ? t('Confirming…') : t('I see this too')}
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+      </div>
+    </div>
+  );
+}
